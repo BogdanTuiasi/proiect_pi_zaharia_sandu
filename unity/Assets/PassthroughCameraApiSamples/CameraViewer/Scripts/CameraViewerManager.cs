@@ -16,6 +16,36 @@ namespace PassthroughCameraSamples.CameraViewer
         [SerializeField] private Text m_debugText;
         [SerializeField] private RawImage m_image;
 
+        private PassthroughTcpSender m_tcpSender;
+        private bool m_showingReceivedFrame;
+
+        private void OnEnable()
+        {
+            // Senderul este atasat obiectului cu acces la camera din CameraViewer.
+            m_tcpSender = m_cameraAccess.GetComponent<PassthroughTcpSender>();
+            if (m_tcpSender == null)
+            {
+                Debug.LogWarning("[TCP] Sender lipsa pe obiectul Camera Access.");
+                return;
+            }
+
+            m_tcpSender.FrameReceived += ShowReceivedFrame;
+            if (m_tcpSender.ReceivedTexture != null)
+                ShowReceivedFrame(m_tcpSender.ReceivedTexture);
+        }
+
+        private void OnDisable()
+        {
+            if (m_tcpSender != null)
+                m_tcpSender.FrameReceived -= ShowReceivedFrame;
+        }
+
+        private void ShowReceivedFrame(Texture2D texture)
+        {
+            m_image.texture = texture;
+            m_showingReceivedFrame = true;
+        }
+
         private IEnumerator Start()
         {
             var supportedResolutions = PassthroughCameraAccess.GetSupportedResolutions(PassthroughCameraAccess.CameraPositionType.Left);
@@ -26,8 +56,9 @@ namespace PassthroughCameraSamples.CameraViewer
             {
                 yield return null;
             }
-            // Set texture to the RawImage Ui element
-            m_image.texture = m_cameraAccess.GetTexture();
+            // Afisam camera locala pana la primirea primului cadru procesat.
+            if (!m_showingReceivedFrame)
+                m_image.texture = m_cameraAccess.GetTexture();
         }
 
         private void Update() => m_debugText.text = OVRPermissionsRequester.IsPermissionGranted(OVRPermissionsRequester.Permission.PassthroughCameraAccess) ? "Permission granted." : "No permission granted.";

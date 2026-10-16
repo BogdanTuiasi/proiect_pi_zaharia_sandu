@@ -26,6 +26,7 @@ def run_server(process_frame):
                             # (albastru pe primul canal, nu RGB).
                             frame = receive_frame(conn)
                             frame = process_frame(frame)
+                            send_frame(conn, frame)
                             cv2.imshow("Quest camera", frame)
 
                             if cv2.waitKey(1) == 27:

@@ -8,7 +8,7 @@ def send_exact(conn: socket.socket, data: bytes) -> None:
     """Scrie exact size bytes."""
 
     while len(data) > 0:
-        num_bytes_sent = conn.send(data, len(data))
+        num_bytes_sent = conn.send(data)
 
         if num_bytes_sent == 0:
             raise ConnectionError("Conexiunea s-a terminat.")

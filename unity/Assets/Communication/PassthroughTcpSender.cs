@@ -1,5 +1,7 @@
 using System;
 using System.Net.Sockets;
+using System.IO;
+using System.Threading.Tasks;
 using Meta.XR;
 using UnityEngine;
 
@@ -15,6 +17,11 @@ public class PassthroughTcpSender : MonoBehaviour
     [Header("Streaming")]
     [SerializeField, Range(1, 30)] private int fps = 10;
     [SerializeField, Range(1, 100)] private int jpegQuality = 65;
+
+    // Cadrele JPEG din Python folosesc acelasi protocol cu lungimea inaintea datelor.
+    private const int MaxFrameBytes = 20_000_000;
+    public Texture2D ReceivedTexture { get; private set; }
+    public event Action<Texture2D> FrameReceived;
 
     private TcpClient client;
     private NetworkStream stream;
@@ -57,6 +64,7 @@ public class PassthroughTcpSender : MonoBehaviour
             nextStatsLog = Time.unscaledTime + 5f;
 
             Debug.Log($"[TCP] Conectat la {serverIp}:{port}.");
+            _ = ReceiveFramesAsync(stream);
         }
         catch (Exception e)
         {
@@ -178,6 +186,65 @@ public class PassthroughTcpSender : MonoBehaviour
         }
     }
 
+    private static async Task ReadExactAsync(NetworkStream input, byte[] buffer)
+    {
+        int offset = 0;
+        while (offset < buffer.Length)
+        {
+            int count = await input.ReadAsync(buffer, offset, buffer.Length - offset);
+            if (count == 0)
+                throw new EndOfStreamException("Serverul a inchis conexiunea.");
+            offset += count;
+        }
+    }
+
+    private async Task ReceiveFramesAsync(NetworkStream input)
+    {
+        bool firstFrame = true;
+        var header = new byte[4];
+
+        try
+        {
+            while (!destroyed)
+            {
+                await ReadExactAsync(input, header);
+                uint length = ((uint)header[0] << 24) |
+                              ((uint)header[1] << 16) |
+                              ((uint)header[2] << 8) |
+                              header[3];
+
+                if (length == 0 || length > MaxFrameBytes)
+                    throw new InvalidDataException($"Lungime cadru invalida: {length}");
+
+                var jpeg = new byte[(int)length];
+                await ReadExactAsync(input, jpeg);
+                if (destroyed)
+                    return;
+
+                // Dupa await, executia continua pe firul principal Unity, unde putem modifica texturile.
+                if (ReceivedTexture == null)
+                    ReceivedTexture = new Texture2D(2, 2, TextureFormat.RGB24, false);
+
+                if (!ReceivedTexture.LoadImage(jpeg))
+                    throw new InvalidDataException("JPEG primit invalid.");
+
+                FrameReceived?.Invoke(ReceivedTexture);
+
+                if (firstFrame)
+                {
+                    Debug.Log($"[TCP] Primul cadru primit: {length} bytes.");
+                    firstFrame = false;
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            if (!destroyed)
+                Debug.LogError($"[TCP] Receptia a esuat: {e}");
+            CloseConnection();
+        }
+    }
+
     private void CloseConnection()
     {
         stream = null;
@@ -192,5 +259,8 @@ public class PassthroughTcpSender : MonoBehaviour
 
         if (image != null)
             Destroy(image);
+
+        if (ReceivedTexture != null)
+            Destroy(ReceivedTexture);
     }
 }
