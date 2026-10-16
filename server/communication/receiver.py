@@ -2,9 +2,7 @@ import socket
 import struct
 import cv2
 import numpy as np
-
-MAX_FRAME_BYTES = 20_000_000
-
+from .constants import MAX_FRAME_BYTES as MAX_FRAME_BYTES
 
 def receive_exact(conn: socket.socket, size: int) -> bytearray:
     """Citeste exact size bytes sau semnaleaza deconectarea."""
@@ -20,10 +18,9 @@ def receive_exact(conn: socket.socket, size: int) -> bytearray:
 
     return data
 
-
 def receive_frame(conn: socket.socket) -> np.ndarray:
     header = receive_exact(conn, 4)
-    length = struct.unpack("!I", header)[0]
+    length = struct.unpack("!I", header)[0] # I = integer, ! = big-endian
 
     if not 0 < length <= MAX_FRAME_BYTES:
         raise ValueError(f"Lungime cadru invalida: {length}")

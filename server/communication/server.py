@@ -1,8 +1,9 @@
 import socket
 import cv2
-from receiver import receive_frame
+from .receiver import receive_frame
+from .sender import send_frame
 
-def main():
+def run_server(process_frame):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind(("0.0.0.0", 5000))
@@ -21,11 +22,10 @@ def main():
 
                     try:
                         while True:
-                            frame = receive_frame(conn)
-
-                            # Aici vom apela OCR-ul si traducerea.
                             # frame este o imagine OpenCV in format BGR
                             # (albastru pe primul canal, nu RGB).
+                            frame = receive_frame(conn)
+                            frame = process_frame(frame)
                             cv2.imshow("Quest camera", frame)
 
                             if cv2.waitKey(1) == 27:
@@ -35,7 +35,3 @@ def main():
                         print(f"Conexiune inchisa: {error}")
         finally:
             cv2.destroyAllWindows()
-
-
-if __name__ == "__main__":
-    main()

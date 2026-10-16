@@ -129,7 +129,8 @@ public class PassthroughTcpSender : MonoBehaviour
 
             byte[] jpg = image.EncodeToJPG(jpegQuality);
 
-            // Protocol: [4 bytes lungime, big-endian][JPEG].
+            // Protocol: [4 bytes lungime, big-endian][JPEG]
+            // (facem manual conversia).
             int length = jpg.Length;
             byte[] header =
             {
