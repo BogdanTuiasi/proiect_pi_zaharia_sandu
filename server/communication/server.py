@@ -1,6 +1,6 @@
 import socket
 import cv2
-from .receiver import receive_frame
+from .receiver import FrameMessage, receive_frame
 from .sender import send_frame
 
 def run_server(process_frame):
@@ -22,12 +22,25 @@ def run_server(process_frame):
 
                     try:
                         while True:
+                            # metadata include frame ID si contextul imaginii.
                             # frame este o imagine OpenCV in format BGR
                             # (albastru pe primul canal, nu RGB).
-                            frame = receive_frame(conn)
-                            frame = process_frame(frame)
-                            send_frame(conn, frame)
-                            cv2.imshow("Quest camera", frame)
+                            frame_message = receive_frame(conn)
+                            original_frame_id = frame_message.frame_id
+                            processed_frame = process_frame(frame_message.frame)
+                            result_message = FrameMessage(
+                                frame_id=original_frame_id,
+                                metadata={
+                                    **frame_message.metadata,
+                                    "type": "processing_result",
+                                },
+                                frame=processed_frame,
+                            )
+                            if result_message.frame_id != original_frame_id:
+                                raise ValueError("ID-ul cadrului s-a schimbat in timpul procesarii")
+
+                            send_frame(conn, result_message)
+                            cv2.imshow("Quest camera", result_message.frame)
 
                             if cv2.waitKey(1) == 27:
                                 return
