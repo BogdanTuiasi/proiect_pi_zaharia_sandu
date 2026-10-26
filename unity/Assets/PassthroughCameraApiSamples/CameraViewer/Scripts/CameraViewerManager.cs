@@ -18,6 +18,8 @@ namespace PassthroughCameraSamples.CameraViewer
 
         private PassthroughTcpSender m_tcpSender;
         private bool m_showingReceivedFrame;
+        private bool m_hasDisplayedFrameId;
+        private ulong m_lastDisplayedFrameId;
 
         private void OnEnable()
         {
@@ -30,8 +32,8 @@ namespace PassthroughCameraSamples.CameraViewer
             }
 
             m_tcpSender.FrameReceived += ShowReceivedFrame;
-            if (m_tcpSender.ReceivedTexture != null)
-                ShowReceivedFrame(m_tcpSender.ReceivedTexture);
+            if (m_tcpSender.ReceivedFrame != null)
+                ShowReceivedFrame(m_tcpSender.ReceivedFrame);
         }
 
         private void OnDisable()
@@ -40,9 +42,17 @@ namespace PassthroughCameraSamples.CameraViewer
                 m_tcpSender.FrameReceived -= ShowReceivedFrame;
         }
 
-        private void ShowReceivedFrame(Texture2D texture)
+        private void ShowReceivedFrame(PassthroughTcpSender.MatchedFrame frame)
         {
-            m_image.texture = texture;
+            if (m_hasDisplayedFrameId && frame.FrameId <= m_lastDisplayedFrameId)
+            {
+                Debug.Log($"[TCP] Ignor rezultat vechi pentru cadrul {frame.FrameId}.");
+                return;
+            }
+
+            m_hasDisplayedFrameId = true;
+            m_lastDisplayedFrameId = frame.FrameId;
+            m_image.texture = frame.Texture;
             m_showingReceivedFrame = true;
         }
 
