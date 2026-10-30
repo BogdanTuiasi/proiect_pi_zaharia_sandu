@@ -37,8 +37,8 @@ public class PassthroughTcpSender : MonoBehaviour
     private const int MaxFrameBytes = 20_000_000;
     private const int MaxMetadataBytes = 65_536;
     private const int MaxPacketBytes = sizeof(uint) + MaxMetadataBytes + MaxFrameBytes;
-    private const int MaxPendingFrames = 20;
-    private const double PendingFrameTimeoutSeconds = 10.0;
+    private const int MaxPendingFrames = 1;
+    private const double PendingFrameTimeoutSeconds = 2;
     private static readonly long PendingFrameTimeoutTicks =
         (long)(Stopwatch.Frequency * PendingFrameTimeoutSeconds);
 

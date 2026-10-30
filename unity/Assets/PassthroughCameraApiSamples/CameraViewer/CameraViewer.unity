@@ -1555,7 +1555,7 @@ MonoBehaviour:
   cameraAccess: {fileID: 1608124433}
   serverIp: 127.0.0.1
   port: 5000
-  fps: 30
+  fps: 5
   jpegQuality: 65
 --- !u!1001 &1798160513
 PrefabInstance:
