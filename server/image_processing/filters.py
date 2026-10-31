@@ -22,24 +22,3 @@ def make_contrast_lut(a, b, sa, sb, L=256):
 def accentuate_contrast(a, b, sa, sb, L=256):
     lut = make_contrast_lut(a, b, sa, sb, L)
     return lambda image: cv2.LUT(image, lut)
-
-detector = TextDetection(
-    model_name="PP-OCRv5_mobile_det",
-    device="cpu",
-    enable_mkldnn=False,
-)
-
-def proc(image: np.ndarray):
-    regions = []
-
-    for result in detector.predict(image):
-        for polygon, score in zip(result["dt_polys"], result["dt_scores"]):
-            regions.append({
-                "polygon": polygon.tolist(),
-                "score": float(score),
-            })
-
-            points = np.asarray(polygon, dtype=np.int32).reshape(-1, 1, 2)
-            cv2.polylines(image, [points], True, (0, 255, 0), 2)
-    print(regions)
-    return image
