@@ -7,7 +7,7 @@ recognizer = TextRecognition(
     device="gpu:0",
 )
 
-def ocr(image: np.ndarray, polygon: np.ndarray) -> str:
+def crop(image: np.ndarray, polygon: np.ndarray) -> np.ndarray:
     tl, tr, br, bl = np.asarray(polygon, dtype=np.float32).reshape(4, 2)
 
     width = max(2, round(max(
@@ -28,7 +28,10 @@ def ocr(image: np.ndarray, polygon: np.ndarray) -> str:
     ], dtype=np.float32)
 
     transform = cv2.getPerspectiveTransform(source, destination)
-    crop = cv2.warpPerspective(image, transform, (width, height))
+    return cv2.warpPerspective(image, transform, (width, height))
 
-    result = recognizer.predict(crop)[0]
-    return result["rec_text"]
+def ocr(image: np.ndarray, polygons: list[np.ndarray]) -> list[str]:
+    if not polygons: return []
+    crops = [crop(image, poly) for poly in polygons]
+    results = recognizer.predict(crops, batch_size=32)
+    return [res["rec_text"] for res in results]
