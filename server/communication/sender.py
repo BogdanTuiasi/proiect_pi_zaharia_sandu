@@ -54,3 +54,18 @@ def send_frame(conn: socket.socket, message: FrameMessage) -> None:
     send_exact(conn, header)
     send_exact(conn, metadata_bytes)
     send_exact(conn, payload)
+
+def send_config(conn: socket.socket, fps: int = 10, jpeg_quality: int = 65, target_language: str = "ro") -> None:
+    config_dict = {
+        "type": "config",
+        "fps": fps,
+        "jpeg_quality": jpeg_quality,
+        "target_language": target_language,
+    }
+    metadata_bytes = json.dumps(config_dict, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    metadata_length = len(metadata_bytes)
+    packet_length = 4 + metadata_length
+
+    header = struct.pack("!II", packet_length, metadata_length)
+    send_exact(conn, header)
+    send_exact(conn, metadata_bytes)

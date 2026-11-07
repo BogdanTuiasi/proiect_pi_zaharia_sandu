@@ -5,7 +5,7 @@ from .translator import translator
 
 import random
 
-CENTER_THR = 300
+CENTER_THR = 200
 CUMULATIVE_POINT_THR = CENTER_THR
 
 def draw_text_in_polygon(
