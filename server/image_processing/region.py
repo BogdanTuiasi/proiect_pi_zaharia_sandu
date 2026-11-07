@@ -1,12 +1,13 @@
 from typing import Optional
+import random
 import cv2
 import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 from .translator import translator
-
-import random
 
 CENTER_THR = 200
 CUMULATIVE_POINT_THR = CENTER_THR
+
 
 def draw_text_in_polygon(
     image: np.ndarray,
@@ -15,33 +16,41 @@ def draw_text_in_polygon(
     color = (255, 255, 255)
 ):
     x, y, w, h = cv2.boundingRect(polygon)
-
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    thickness = 1
-
-    (text_w, text_h), baseline = cv2.getTextSize(text, font, 1.0, thickness)
-    scale = min(
-        w / max(text_w, 1),
-        h / max(text_h + baseline, 1),
-    )
-    (text_w, text_h), baseline = cv2.getTextSize(text, font, scale, thickness)
-
-    origin = (
-        x + (w - text_w) // 2,
-        y + (h - text_h - baseline) // 2 + text_h,
-    )
-
     cv2.fillPoly(image, [polygon], color)
-    cv2.putText(
-        image, text, origin, font, scale,
-        (0, 0, 0), thickness, cv2.LINE_AA,
-    )
+
+    font_size = max(10, int(h * 0.7))
+    try:
+        font = ImageFont.truetype("arial.ttf", font_size)
+    except OSError:
+        font = ImageFont.load_default()
+
+    pil_img = Image.fromarray(image)
+    draw = ImageDraw.Draw(pil_img)
+
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    if tw > w and tw > 0:
+        font_size = max(8, int(font_size * (w / tw)))
+        try:
+            font = ImageFont.truetype("arial.ttf", font_size)
+        except OSError:
+            font = ImageFont.load_default()
+        bbox = draw.textbbox((0, 0), text, font=font)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+    tx = x + (w - tw) // 2 - bbox[0]
+    ty = y + (h - th) // 2 - bbox[1]
+
+    draw.text((tx, ty), text, font=font, fill=(0, 0, 0))
+    image[:] = np.asarray(pil_img)
+
 
 class Region:
     """Se ocupa de controlul informatiilor de desenare a regiunii"""
     __polygon: np.ndarray[tuple[int, int]]
     __text: str
     __translation: Optional[str] = None
+    __is_translating: bool = False
     
     __region_id: str # for debugging
     
@@ -63,13 +72,25 @@ class Region:
         self.__polygon = polygon
         self.__text = text
         self.__region_id = region_id
+
+    def set_translation(self, text: str):
+        # daca intre timp stergem traducerea sa nu traduca peste eronat
+        if(not self.__is_translating): return
+        self.__translation = text
+        self.__is_translating = False
         
     def erase_translation(self):
         self.__translation = None
+        self.__is_translating = False
         
     def draw(self, image: np.ndarray):
-        if(self.__translation == None):
-            self.__translation = translator.translate(self.__text)
+        if self.__translation is None and not self.__is_translating:
+            self.__is_translating = True
+            translator.translate_async(self.__text, self.set_translation)
+
+        if not self.__translation:
+            return
+
         rng = random.Random(self.__region_id)
         color = (rng.randint(0, 255), rng.randint(0, 255), rng.randint(0, 255))
         draw_text_in_polygon(image, self.__polygon, self.__translation, color)
