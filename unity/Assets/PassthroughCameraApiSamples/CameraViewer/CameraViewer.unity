@@ -1556,7 +1556,8 @@ MonoBehaviour:
   serverIp: 127.0.0.1
   port: 5000
   fps: 5
-  jpegQuality: 65
+  jpegQuality: 40
+  targetLanguage: ro
 --- !u!1001 &1798160513
 PrefabInstance:
   m_ObjectHideFlags: 0

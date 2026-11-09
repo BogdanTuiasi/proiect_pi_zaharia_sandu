@@ -33,6 +33,7 @@ public class PassthroughTcpSender : MonoBehaviour
     [Header("Streaming")]
     [SerializeField, Range(1, 30)] private int fps = 10;
     [SerializeField, Range(1, 100)] private int jpegQuality = 65;
+    [SerializeField] private string targetLanguage = "ro";
 
     private const int MaxFrameBytes = 20_000_000;
     private const int MaxMetadataBytes = 65_536;
@@ -41,6 +42,15 @@ public class PassthroughTcpSender : MonoBehaviour
     private const double PendingFrameTimeoutSeconds = 2;
     private static readonly long PendingFrameTimeoutTicks =
         (long)(Stopwatch.Frequency * PendingFrameTimeoutSeconds);
+
+    [Serializable]
+    private class ConfigMetadata
+    {
+        public string type;
+        public int fps;
+        public int jpeg_quality;
+        public string target_language;
+    }
 
     [Serializable]
     private class FrameMetadata
@@ -96,6 +106,7 @@ public class PassthroughTcpSender : MonoBehaviour
     public Texture2D ReceivedTexture => ReceivedFrame?.Texture;
     public ulong ReceivedFrameId => ReceivedFrame?.FrameId ?? 0;
     public event Action<MatchedFrame> FrameReceived;
+    public event Action<string> TargetLanguageChanged;
 
     private TcpClient client;
     private NetworkStream stream;
@@ -143,6 +154,7 @@ public class PassthroughTcpSender : MonoBehaviour
             nextStatsLog = Time.unscaledTime + 5f;
 
             Debug.Log($"[TCP] Conectat la {serverIp}:{port}.");
+            await ReadConfigAsync(stream);
             _ = ReceiveFramesAsync(stream);
         }
         catch (Exception e)
@@ -155,6 +167,41 @@ public class PassthroughTcpSender : MonoBehaviour
 
             CloseConnection();
         }
+    }
+
+    private async Task ReadConfigAsync(NetworkStream input)
+    {
+        var packetLengthHeader = new byte[sizeof(uint)];
+        var metadataLengthHeader = new byte[sizeof(uint)];
+
+        await ReadExactAsync(input, packetLengthHeader);
+        uint packetLength = ReadUInt32BigEndian(packetLengthHeader, 0);
+
+        await ReadExactAsync(input, metadataLengthHeader);
+        uint metadataLength = ReadUInt32BigEndian(metadataLengthHeader, 0);
+
+        var metadataBytes = new byte[(int)metadataLength];
+        await ReadExactAsync(input, metadataBytes);
+
+        string json = new UTF8Encoding(false, true).GetString(metadataBytes);
+        ConfigMetadata config = JsonUtility.FromJson<ConfigMetadata>(json);
+
+        if (config == null || config.type != "config")
+            throw new InvalidDataException("Pachetul initial nu este de tip config.");
+
+        if (config.fps > 0)
+            fps = Mathf.Clamp(config.fps, 1, 30);
+
+        if (config.jpeg_quality > 0)
+            jpegQuality = Mathf.Clamp(config.jpeg_quality, 1, 100);
+
+        if (!string.IsNullOrEmpty(config.target_language))
+        {
+            targetLanguage = config.target_language;
+            TargetLanguageChanged?.Invoke(targetLanguage);
+        }
+
+        Debug.Log($"[TCP] Config primit: FPS={fps}, Quality={jpegQuality}, Lang={targetLanguage}");
     }
 
     private async void Update()
