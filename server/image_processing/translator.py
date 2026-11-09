@@ -39,6 +39,7 @@ class Translator:
 
     async def translate(self, text: str) -> str:
         clean = text.strip()
+        # return text # debug
         if not clean: return text
 
         try:

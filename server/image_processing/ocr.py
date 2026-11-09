@@ -1,13 +1,23 @@
 import cv2
 import numpy as np
-from paddleocr import TextRecognition
+from paddleocr import TextDetection, TextRecognition
+
+detector = TextDetection(
+    model_name="PP-OCRv5_mobile_det",
+    device="gpu:0",
+    enable_mkldnn=False,
+)
 
 recognizer = TextRecognition(
     model_name="PP-OCRv5_mobile_rec",
     device="gpu:0",
 )
 
-def crop(image: np.ndarray, polygon: np.ndarray) -> np.ndarray:
+def get_polygons(image: np.ndarray) -> list[tuple[np.ndarray, float]]:
+    result = detector.predict(image)[0]
+    return zip(result["dt_polys"], result["dt_scores"])
+
+def __crop(image: np.ndarray, polygon: np.ndarray) -> np.ndarray:
     tl, tr, br, bl = np.asarray(polygon, dtype=np.float32).reshape(4, 2)
 
     width = max(2, round(max(
@@ -32,6 +42,6 @@ def crop(image: np.ndarray, polygon: np.ndarray) -> np.ndarray:
 
 def ocr(image: np.ndarray, polygons: list[np.ndarray]) -> list[str]:
     if not polygons: return []
-    crops = [crop(image, poly) for poly in polygons]
+    crops = [__crop(image, poly) for poly in polygons]
     results = recognizer.predict(crops, batch_size=32)
     return [res["rec_text"] for res in results]

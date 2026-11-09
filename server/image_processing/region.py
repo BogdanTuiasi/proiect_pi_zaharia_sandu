@@ -5,7 +5,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from .translator import translator
 
-CENTER_THR = 200
+CENTER_THR = 100
 CUMULATIVE_POINT_THR = CENTER_THR
 
 
@@ -15,8 +15,11 @@ def draw_text_in_polygon(
     text: str,
     color = (255, 255, 255)
 ):
-    x, y, w, h = cv2.boundingRect(polygon)
+    pts = polygon.reshape(-1, 2).astype(np.float32)
     cv2.fillPoly(image, [polygon], color)
+
+    w = int(np.linalg.norm(pts[1] - pts[0]))
+    h = int(np.linalg.norm(pts[3] - pts[0]))
 
     font_size = max(10, int(h * 0.7))
     try:
@@ -24,8 +27,8 @@ def draw_text_in_polygon(
     except OSError:
         font = ImageFont.load_default()
 
-    pil_img = Image.fromarray(image)
-    draw = ImageDraw.Draw(pil_img)
+    patch = Image.new("RGB", (w, h), color)
+    draw = ImageDraw.Draw(patch)
 
     bbox = draw.textbbox((0, 0), text, font=font)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
@@ -38,11 +41,13 @@ def draw_text_in_polygon(
         bbox = draw.textbbox((0, 0), text, font=font)
         tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
 
-    tx = x + (w - tw) // 2 - bbox[0]
-    ty = y + (h - th) // 2 - bbox[1]
-
+    tx = (w - tw) // 2 - bbox[0]
+    ty = (h - th) // 2 - bbox[1]
     draw.text((tx, ty), text, font=font, fill=(0, 0, 0))
-    image[:] = np.asarray(pil_img)
+
+    src_pts = np.array([[0, 0], [w, 0], [w, h], [0, h]], dtype=np.float32)
+    tfm = cv2.getPerspectiveTransform(src_pts, pts)
+    cv2.warpPerspective(np.array(patch), tfm, (image.shape[1], image.shape[0]), dst=image, borderMode=cv2.BORDER_TRANSPARENT)
 
 
 class Region:
