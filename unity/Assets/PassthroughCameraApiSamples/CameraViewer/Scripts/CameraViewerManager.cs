@@ -15,11 +15,14 @@ namespace PassthroughCameraSamples.CameraViewer
         [SerializeField] private PassthroughCameraAccess m_cameraAccess;
         [SerializeField] private Text m_debugText;
         [SerializeField] private RawImage m_image;
+        [SerializeField] private TextRegionOverlayRenderer m_overlayRenderer;
 
         private PassthroughTcpSender m_tcpSender;
-        private bool m_showingReceivedFrame;
         private bool m_hasDisplayedFrameId;
         private ulong m_lastDisplayedFrameId;
+        private int m_lastLoggedUnityFrameCount;
+        private int m_lastLoggedSentFrameCount;
+        private float m_statsWindowStart;
 
         private void OnEnable()
         {
@@ -32,6 +35,9 @@ namespace PassthroughCameraSamples.CameraViewer
             }
 
             m_tcpSender.FrameReceived += ShowReceivedFrame;
+            m_lastLoggedSentFrameCount = m_tcpSender.SentFrameCount;
+            m_lastLoggedUnityFrameCount = Time.frameCount;
+            m_statsWindowStart = Time.unscaledTime;
             if (m_tcpSender.ReceivedFrame != null)
                 ShowReceivedFrame(m_tcpSender.ReceivedFrame);
         }
@@ -52,8 +58,7 @@ namespace PassthroughCameraSamples.CameraViewer
 
             m_hasDisplayedFrameId = true;
             m_lastDisplayedFrameId = frame.FrameId;
-            m_image.texture = frame.Texture;
-            m_showingReceivedFrame = true;
+            m_overlayRenderer?.ApplyFrame(frame);
         }
 
         private IEnumerator Start()
@@ -66,11 +71,37 @@ namespace PassthroughCameraSamples.CameraViewer
             {
                 yield return null;
             }
-            // Afisam camera locala pana la primirea primului cadru procesat.
-            if (!m_showingReceivedFrame)
-                m_image.texture = m_cameraAccess.GetTexture();
+            // Pastreaza RawImage legat de textura locala, actualizata de API-ul camerei.
+            m_image.texture = m_cameraAccess.GetTexture();
         }
 
-        private void Update() => m_debugText.text = OVRPermissionsRequester.IsPermissionGranted(OVRPermissionsRequester.Permission.PassthroughCameraAccess) ? "Permission granted." : "No permission granted.";
+        private void Update()
+        {
+            m_debugText.text = OVRPermissionsRequester.IsPermissionGranted(OVRPermissionsRequester.Permission.PassthroughCameraAccess)
+                ? "Permission granted."
+                : "No permission granted.";
+
+            if (m_cameraAccess != null && m_cameraAccess.IsPlaying)
+                m_overlayRenderer?.UpdateCameraPose(m_cameraAccess.GetCameraPose());
+
+            if (m_tcpSender == null)
+                return;
+
+            float now = Time.unscaledTime;
+            float elapsed = now - m_statsWindowStart;
+            if (elapsed < 1f)
+                return;
+
+            int sentTotal = m_tcpSender.SentFrameCount;
+            int sentInWindow = sentTotal - m_lastLoggedSentFrameCount;
+            int unityFramesInWindow = Time.frameCount - m_lastLoggedUnityFrameCount;
+            Debug.Log(
+                $"[FPS] Trimise catre server: {sentInWindow / elapsed:F1} cadre/s " +
+                $"(total {sentTotal}); cadre Unity: {unityFramesInWindow / elapsed:F1} cadre/s.");
+
+            m_lastLoggedSentFrameCount = sentTotal;
+            m_lastLoggedUnityFrameCount = Time.frameCount;
+            m_statsWindowStart = now;
+        }
     }
 }

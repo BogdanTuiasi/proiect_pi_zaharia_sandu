@@ -7,7 +7,6 @@ using System.Text;
 using System.Threading.Tasks;
 using Meta.XR;
 using UnityEngine;
-using Stopwatch = System.Diagnostics.Stopwatch;
 
 //Format pachete trimise intre Unity si server:
 //
@@ -31,17 +30,16 @@ public class PassthroughTcpSender : MonoBehaviour
     [SerializeField] private int port = 5000;
 
     [Header("Streaming")]
-    [SerializeField, Range(1, 30)] private int fps = 10;
+    [SerializeField, Range(1, 60)] private int fps = 10;
     [SerializeField, Range(1, 100)] private int jpegQuality = 65;
     [SerializeField] private string targetLanguage = "ro";
 
     private const int MaxFrameBytes = 20_000_000;
     private const int MaxMetadataBytes = 65_536;
     private const int MaxPacketBytes = sizeof(uint) + MaxMetadataBytes + MaxFrameBytes;
+    // A single request acts as the processing slot/credit. Frames captured while
+    // it is occupied remain local and are not queued for stale server processing.
     private const int MaxPendingFrames = 1;
-    private const double PendingFrameTimeoutSeconds = 2;
-    private static readonly long PendingFrameTimeoutTicks =
-        (long)(Stopwatch.Frequency * PendingFrameTimeoutSeconds);
 
     [Serializable]
     private class ConfigMetadata
@@ -61,6 +59,25 @@ public class PassthroughTcpSender : MonoBehaviour
         public string camera_id;
         public int width;
         public int height;
+        public RegionMetadata[] regions;
+    }
+
+    [Serializable]
+    public sealed class RegionPoint
+    {
+        public int x;
+        public int y;
+    }
+
+    [Serializable]
+    public sealed class RegionMetadata
+    {
+        public string region_id;
+        public string source_text;
+        public string translation;
+        public bool translation_pending;
+        public float score;
+        public RegionPoint[] polygon;
     }
 
     private class PendingFrame
@@ -70,7 +87,6 @@ public class PassthroughTcpSender : MonoBehaviour
         public int Width;
         public int Height;
         public Pose CameraPose;
-        public long SentAtStopwatchTicks;
     }
 
     public sealed class MatchedFrame
@@ -81,7 +97,7 @@ public class PassthroughTcpSender : MonoBehaviour
         public int Width { get; }
         public int Height { get; }
         public Pose CameraPose { get; }
-        public Texture2D Texture { get; }
+        public RegionMetadata[] Regions { get; }
 
         public MatchedFrame(
             ulong frameId,
@@ -90,7 +106,7 @@ public class PassthroughTcpSender : MonoBehaviour
             int width,
             int height,
             Pose cameraPose,
-            Texture2D texture)
+            RegionMetadata[] regions)
         {
             FrameId = frameId;
             CaptureTimestamp = captureTimestamp;
@@ -98,22 +114,20 @@ public class PassthroughTcpSender : MonoBehaviour
             Width = width;
             Height = height;
             CameraPose = cameraPose;
-            Texture = texture;
+            Regions = regions;
         }
     }
 
     public MatchedFrame ReceivedFrame { get; private set; }
-    public Texture2D ReceivedTexture => ReceivedFrame?.Texture;
     public ulong ReceivedFrameId => ReceivedFrame?.FrameId ?? 0;
+    public int SentFrameCount => sentFrames;
     public event Action<MatchedFrame> FrameReceived;
     public event Action<string> TargetLanguageChanged;
 
     private TcpClient client;
     private NetworkStream stream;
     private Texture2D image;
-    private Texture2D receivedTexture;
     private readonly Dictionary<ulong, PendingFrame> pendingFrames = new();
-    private readonly List<ulong> expiredFrameIds = new();
 
     private bool sending;
     private bool destroyed;
@@ -190,7 +204,7 @@ public class PassthroughTcpSender : MonoBehaviour
             throw new InvalidDataException("Pachetul initial nu este de tip config.");
 
         if (config.fps > 0)
-            fps = Mathf.Clamp(config.fps, 1, 30);
+            fps = Mathf.Clamp(config.fps, 1, 60);
 
         if (config.jpeg_quality > 0)
             jpegQuality = Mathf.Clamp(config.jpeg_quality, 1, 100);
@@ -206,8 +220,6 @@ public class PassthroughTcpSender : MonoBehaviour
 
     private async void Update()
     {
-        ExpirePendingFrames();
-
         if (stream == null || sending || cameraAccess == null)
             return;
 
@@ -311,8 +323,7 @@ public class PassthroughTcpSender : MonoBehaviour
                 CameraId = cameraId,
                 Width = size.x,
                 Height = size.y,
-                CameraPose = cameraPose,
-                SentAtStopwatchTicks = Stopwatch.GetTimestamp()
+                CameraPose = cameraPose
             });
 
             NetworkStream output = stream;
@@ -387,9 +398,12 @@ public class PassthroughTcpSender : MonoBehaviour
                     metadataLength > packetLength - sizeof(uint))
                     throw new InvalidDataException($"Lungime metadata invalida: {metadataLength}");
 
+                if (packetLength != sizeof(uint) + metadataLength)
+                    throw new InvalidDataException("Rezultatul serverului trebuie sa contina doar metadata.");
+
                 uint imageLength = packetLength - sizeof(uint) - metadataLength;
-                if (imageLength == 0 || imageLength > MaxFrameBytes)
-                    throw new InvalidDataException($"Lungime JPEG invalida: {imageLength}");
+                if (imageLength != 0)
+                    throw new InvalidDataException("Rezultatul serverului nu trebuie sa contina un JPEG.");
 
                 var metadataBytes = new byte[(int)metadataLength];
                 await ReadExactAsync(input, metadataBytes);
@@ -401,17 +415,12 @@ public class PassthroughTcpSender : MonoBehaviour
                     !ulong.TryParse(metadata.frame_id, NumberStyles.None, CultureInfo.InvariantCulture, out ulong frameId))
                     throw new InvalidDataException("Metadata rezultat invalida.");
 
-                var jpeg = new byte[(int)imageLength];
-                await ReadExactAsync(input, jpeg);
                 if (destroyed)
                     return;
 
-                ExpirePendingFrames();
-
                 if (!pendingFrames.TryGetValue(frameId, out PendingFrame pendingFrame))
                 {
-                    Debug.LogWarning($"[TCP] Rezultat fara cadru pending: ID {frameId}.");
-                    continue;
+                    throw new InvalidDataException($"Rezultat fara cadru pending: ID {frameId}.");
                 }
 
                 pendingFrames.Remove(frameId);
@@ -426,20 +435,10 @@ public class PassthroughTcpSender : MonoBehaviour
                     !string.Equals(pendingFrame.CameraId, metadata.camera_id, StringComparison.Ordinal) ||
                     pendingFrame.Width != metadata.width || pendingFrame.Height != metadata.height)
                 {
-                    Debug.LogError($"[TCP] Contextul raspunsului nu corespunde cadrului {frameId}.");
-                    continue;
+                    throw new InvalidDataException($"Contextul raspunsului nu corespunde cadrului {frameId}.");
                 }
 
                 pendingLimitLogged = false;
-
-                // Dupa await, executia continua pe firul principal Unity, unde putem modifica texturile.
-                if (receivedTexture == null)
-                    receivedTexture = new Texture2D(2, 2, TextureFormat.RGB24, false);
-
-                if (!receivedTexture.LoadImage(jpeg))
-                    throw new InvalidDataException("JPEG primit invalid.");
-                if (receivedTexture.width != metadata.width || receivedTexture.height != metadata.height)
-                    throw new InvalidDataException("Dimensiunile JPEG nu corespund metadata-ului.");
 
                 ReceivedFrame = new MatchedFrame(
                     frameId,
@@ -448,12 +447,12 @@ public class PassthroughTcpSender : MonoBehaviour
                     pendingFrame.Width,
                     pendingFrame.Height,
                     pendingFrame.CameraPose,
-                    receivedTexture);
+                    metadata.regions ?? Array.Empty<RegionMetadata>());
                 FrameReceived?.Invoke(ReceivedFrame);
 
                 if (firstFrame)
                 {
-                    Debug.Log($"[TCP] Primul rezultat primit pentru cadrul {frameId}: {imageLength} bytes.");
+                    Debug.Log($"[TCP] Primul rezultat cu regiuni primit pentru cadrul {frameId}.");
                     firstFrame = false;
                 }
             }
@@ -473,29 +472,6 @@ public class PassthroughTcpSender : MonoBehaviour
         client = null;
         pendingFrames.Clear();
         pendingLimitLogged = false;
-    }
-
-    private void ExpirePendingFrames()
-    {
-        if (pendingFrames.Count == 0)
-            return;
-
-        long now = Stopwatch.GetTimestamp();
-        expiredFrameIds.Clear();
-        foreach (KeyValuePair<ulong, PendingFrame> entry in pendingFrames)
-        {
-            if (now - entry.Value.SentAtStopwatchTicks >= PendingFrameTimeoutTicks)
-                expiredFrameIds.Add(entry.Key);
-        }
-
-        foreach (ulong frameId in expiredFrameIds)
-            pendingFrames.Remove(frameId);
-
-        if (expiredFrameIds.Count > 0)
-        {
-            Debug.LogWarning($"[TCP] Au expirat {expiredFrameIds.Count} raspunsuri pending.");
-            pendingLimitLogged = false;
-        }
     }
 
     private static uint ReadUInt32BigEndian(byte[] data, int offset)
@@ -522,7 +498,5 @@ public class PassthroughTcpSender : MonoBehaviour
         if (image != null)
             Destroy(image);
 
-        if (receivedTexture != null)
-            Destroy(receivedTexture);
     }
 }

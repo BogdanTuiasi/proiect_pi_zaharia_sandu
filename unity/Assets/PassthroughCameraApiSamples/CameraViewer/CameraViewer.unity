@@ -1555,7 +1555,7 @@ MonoBehaviour:
   cameraAccess: {fileID: 1608124433}
   serverIp: 127.0.0.1
   port: 5000
-  fps: 5
+  fps: 60
   jpegQuality: 40
   targetLanguage: ro
 --- !u!1001 &1798160513

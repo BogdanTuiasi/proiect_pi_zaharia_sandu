@@ -55,6 +55,31 @@ def send_frame(conn: socket.socket, message: FrameMessage) -> None:
     send_exact(conn, metadata_bytes)
     send_exact(conn, payload)
 
+def send_processing_result(conn: socket.socket, metadata: dict[str, object]) -> None:
+    """Send a metadata-only processing result; camera pixels stay local in Unity."""
+    if metadata.get("type") != "processing_result":
+        raise ValueError("Raspunsul trebuie sa aiba type='processing_result'")
+    frame_id = metadata.get("frame_id")
+    if not isinstance(frame_id, str) or not frame_id.isdecimal():
+        raise ValueError("ID-ul cadrului lipseste din metadata rezultatului")
+
+    metadata_bytes = json.dumps(
+        metadata,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    metadata_length = len(metadata_bytes)
+    if not 0 < metadata_length <= MAX_METADATA_BYTES:
+        raise ValueError("Dimensiune metadata rezultat invalida")
+
+    packet_length = 4 + metadata_length
+    if packet_length > MAX_PACKET_BYTES:
+        raise ValueError("Dimensiune pachet rezultat invalida")
+
+    header = struct.pack("!II", packet_length, metadata_length)
+    send_exact(conn, header)
+    send_exact(conn, metadata_bytes)
+
 def send_config(conn: socket.socket, fps: int = 10, jpeg_quality: int = 65, target_language: str = "ro") -> None:
     config_dict = {
         "type": "config",
