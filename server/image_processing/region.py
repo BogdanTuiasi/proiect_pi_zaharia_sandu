@@ -1,6 +1,7 @@
 from threading import Lock
 from typing import Optional
 import numpy as np
+from .optical_flow import transform_polygon
 from .translator import translator
 
 
@@ -19,6 +20,11 @@ class Region:
     def polygon(self) -> np.ndarray:
         with self.__lock:
             return self.__polygon.copy()
+
+    # Muta poligonul vechi dupa miscarea estimata de optical flow
+    def apply_transform(self, M: np.ndarray) -> None:
+        with self.__lock:
+            self.__polygon = transform_polygon(self.__polygon, M)
 
     def update_region(self, other_polygon: np.ndarray[tuple[int, int]], score: float) -> None:
         with self.__lock:

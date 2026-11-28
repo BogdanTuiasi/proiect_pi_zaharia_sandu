@@ -2,6 +2,7 @@ from uuid import uuid4
 from time import monotonic
 import numpy as np
 from . import ocr
+from .optical_flow import optical_flow
 from .region import Region
 from .tracking import match_polygons
 import image_processing.adaptive_preprocessing as ap
@@ -36,9 +37,16 @@ def report_text_recognition_rate(recognition_count: int) -> None:
 
 def reset_regions():
     regions.clear()
+    optical_flow.reset()
 
 def proc(image: np.ndarray) -> list[dict]:
     processed_image = ap.adaptive_preprocessing(image)
+
+    # Mutam poligoanele vechi odata cu camera inainte sa facem matching-ul
+    M = optical_flow.estimate_motion(processed_image)
+    if M is not None and regions:
+        for region in regions.values():
+            region.apply_transform(M)
 
     # Salvam mai intai toate poligoanele si scorurile
     # ca sa putem aplica Hungarian matching raportat la toate.

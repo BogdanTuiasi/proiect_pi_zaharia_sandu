@@ -4,6 +4,8 @@ from scipy.optimize import linear_sum_assignment
 
 IOU_THR = 0.25
 
+# Cat % se suprapun 2 poligoane (Intersection over Union)
+# Nu conteaza ordinea colturilor sau cat de mare e textul
 def polygon_iou(poly_a: np.ndarray, poly_b: np.ndarray) -> float:
     a = np.asarray(poly_a, dtype=np.float32).reshape(-1, 2)
     b = np.asarray(poly_b, dtype=np.float32).reshape(-1, 2)
@@ -30,6 +32,9 @@ def polygon_iou(poly_a: np.ndarray, poly_b: np.ndarray) -> float:
         return 0.0
     return float(inter_area / union)
 
+# Verifica intai ca dimensiunile sa fie relativ apropiate
+# (sa nu lipeasca un titlu scurt de un rand lung),
+# apoi da scorul IoU daca trece de prag
 def match_score(poly_a: np.ndarray, poly_b: np.ndarray) -> float:
     a = np.asarray(poly_a, dtype=np.float32).reshape(-1, 2)
     b = np.asarray(poly_b, dtype=np.float32).reshape(-1, 2)
