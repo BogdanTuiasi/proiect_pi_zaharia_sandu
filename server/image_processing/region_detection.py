@@ -3,6 +3,7 @@ from time import monotonic
 import numpy as np
 from . import ocr
 from .region import Region
+from .tracking import match_polygons
 import image_processing.adaptive_preprocessing as ap
 
 regions: dict[str, Region] = {}
@@ -39,30 +40,38 @@ def reset_regions():
 def proc(image: np.ndarray) -> list[dict]:
     processed_image = ap.adaptive_preprocessing(image)
 
-    update_pending = set(regions.keys())
-    new_polygons: list[tuple[np.ndarray, float]] = []
-    for polygon, score in ocr.get_polygons(processed_image):
-        if score < 0.70: continue
+    # Salvam mai intai toate poligoanele si scorurile
+    # ca sa putem aplica Hungarian matching raportat la toate.
+    detected = [
+        (np.asarray(polygon, dtype=np.int32), float(score))
+        for polygon, score in ocr.get_polygons(processed_image)
+        if score >= 0.70
+    ]
+    
+    # Pacem match intre poligoanele existente si cele detectate.
+    existing_ids = list(regions.keys())
+    matched, unmatched_existing, unmatched_detected = match_polygons(
+        [regions[region_id].polygon for region_id in existing_ids],
+        [polygon for polygon, _ in detected],
+    )
 
-        polygon = np.asarray(polygon, dtype=np.int32)
-        for region_id in update_pending:
-            if regions[region_id].update_region(polygon, score): break
-        else: region_id = None
+    # Le actualizam pe cele care s-au schimbat
+    for r, c in matched:
+        polygon, score = detected[c]
+        regions[existing_ids[r]].update_region(polygon, score)
 
-        if region_id is not None:
-            update_pending.discard(region_id)
-        else:
-            new_polygons.append((polygon, float(score)))
+    # Le stergem pe cele care au disparut
+    for r in unmatched_existing:
+        del regions[existing_ids[r]]
 
+    # Si le adaugam pe cele noi aparute
+    new_polygons = [detected[c] for c in unmatched_detected]
     polygon_images = [polygon for polygon, _ in new_polygons]
     new_texts = ocr.ocr(processed_image, polygon_images)
     report_text_recognition_rate(1 if polygon_images else 0)
     for (polygon, score), text in zip(new_polygons, new_texts):
         region_id = uuid4().hex
         regions[region_id] = Region(polygon, text, region_id, score)
-
-    for lost_region_id in update_pending:
-        del regions[lost_region_id]
 
     for region in regions.values():
         region.request_translation()

@@ -1,7 +1,6 @@
 from threading import Lock
 from typing import Optional
 import numpy as np
-from .tracking import is_same_polygon
 from .translator import translator
 
 
@@ -16,15 +15,15 @@ class Region:
     __score: float
     __lock: Lock
     
-    def __is_same(self, other_polygon: np.ndarray) -> bool:
-        return is_same_polygon(self.__polygon, other_polygon)
-    
-    def update_region(self, other_polygon: np.ndarray[tuple[int, int]], score: float) -> bool:
-        if(not self.__is_same(other_polygon)): return False
+    @property
+    def polygon(self) -> np.ndarray:
+        with self.__lock:
+            return self.__polygon.copy()
+
+    def update_region(self, other_polygon: np.ndarray[tuple[int, int]], score: float) -> None:
         with self.__lock:
             self.__polygon = other_polygon
             self.__score = float(score)
-        return True
         
     def __init__(
         self,
