@@ -1,10 +1,8 @@
 from threading import Lock
 from typing import Optional
 import numpy as np
+from .tracking import is_same_polygon
 from .translator import translator
-
-CENTER_THR = 100
-CUMULATIVE_POINT_THR = CENTER_THR
 
 
 class Region:
@@ -18,14 +16,8 @@ class Region:
     __score: float
     __lock: Lock
     
-    def __is_same(self, other_polygon: np.ndarray[tuple[int, int]]) -> bool:
-        """Daca centrul e aproximativ acelasi, si pozitia e aproximativ aceeasi, atunci probabil e aceeasi regiune."""
-        c1 = np.average(self.__polygon, axis=0)
-        c2 = np.average(other_polygon, axis=0)
-        d = np.linalg.norm(c1 - c2)
-        if(d > CENTER_THR): return False
-        d = np.sum(np.linalg.norm(self.__polygon - other_polygon, axis=1), axis=0)
-        return d <= CUMULATIVE_POINT_THR
+    def __is_same(self, other_polygon: np.ndarray) -> bool:
+        return is_same_polygon(self.__polygon, other_polygon)
     
     def update_region(self, other_polygon: np.ndarray[tuple[int, int]], score: float) -> bool:
         if(not self.__is_same(other_polygon)): return False
